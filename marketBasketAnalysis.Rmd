@@ -1,0 +1,198 @@
+---
+title: "Market Basket Analysis"
+author: "Chris Selig"
+date: "May 12, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Summary
+
+Market Basket Analysis (MBA), or Recommendation Engine, uncovers associations between products by looking for combinations of products that frequently co-occur in transactions.  Some ways that a retailer could use MBA insights:
+
+1. Targeting marketing campaigns by sending out pormotional coupons to customers for products related to items they recently purchased.
+
+2. Increasing cross selling opportunities by grouping products in the design of the store layout.  For example, if you find that people who buy movies also buy popcorn, you could display popcorn right beside a movie display.
+
+3. Using online recommendation engines.  If you have ever shopped online, you probably have seen this already.  For example, Amazon shows "Customers who viewed this item also viewed" and "What other items do customer buy after viewing this item" sections when you click on a product on their website.  
+
+4. Segment customers based on buying patterns.  An interesting example is [Target identifying a teen was pregnant](http://techland.time.com/2012/02/17/how-target-knew-a-high-school-girl-was-pregnant-before-her-parents/) and targeting her with specific ads.
+
+## The Data
+
+Data was found on the [Machine Learning Repository](https://archive.ics.uci.edu/ml/datasets/Online%20Retail) and was accessed April 27th, 2018. 
+
+The dataset is transactional, with all transactions occuring between Jan 1st, 2010 and Sep 12th, 2011 for a UK-based and registered non-store online retail. The company mainly sells unique all-occassion gifts and many of the customers are wholesalers.
+
+Dataset attribute information:
+
+Attribute Information:
+
+1. InvoiceNo: Invoice number. Nominal, a 6-digit integral number uniquely assigned to each transaction. If this code starts with letter 'c', it indicates a cancellation.
+
+2. StockCode: Product (item) code. Nominal, a 5-digit integral number uniquely assigned to each distinct product. 
+
+3. Description: Product (item) name. Nominal. 
+
+4. Quantity: The quantities of each product (item) per transaction. Numeric. 
+
+5. InvoiceDate: Invice Date and time. Numeric, the day and time when each transaction was generated. 
+
+6. UnitPrice: Unit price. Numeric, Product price per unit in sterling. 
+
+7. CustomerID: Customer number. Nominal, a 5-digit integral number uniquely assigned to each customer. 
+
+8. Country: Country name. Nominal, the name of the country where each customer resides
+
+## The Code (shameless plug)
+
+You can find all of the code and a copy of the data on my [GitHub page](https://github.com/chrisselig/MarketBasketAnalysis).
+
+
+```{r dataLoad, warning=FALSE, message=FALSE, include=FALSE}
+options(scipen = 999)
+
+library(tidyverse);library(arules);library(arulesViz)
+
+#Read file back in as transactions object
+trans <- read.transactions('market_basket_data.csv', format = 'basket', sep=',',quote = "")
+```
+
+## Key Terms
+
+The idea behind association rules is to use "If-Then" statements computed from the data to identify which products tend to be purchased together.  For example, if someone bought a printer, they may then buy ink. The if-then rules are probabilistic in nature unlike the if-then rules in logic.
+
+Some important terms:
+
+Item set - The items purchased together, for example printer and ink.
+
+Support - The percentage of transactions that contain all of the items in an itemset. The higher the support the more frequently the itemset occurs. Rules with a high support are preferred since they are likely to be applicable to a large number of future transactions.
+
+Confidence - The probability that a transaction that contains the items on the left hand side of the rule (printer in my example) also contains the item on the right hand side (ink). The higher the confidence, the greater the likelihood that the item on the right hand side will be purchased.
+
+Lift - Lift summarises the strength of association between the products on the left and right hand side of the rule. The larger the lift the greater the link between the two products.  The lift calculation is:
+
+$$Support/(Probability(left hand side)*Probability(Right hand side))$$
+
+## Analysis
+
+### Frequent Items
+
+It is a good idea when you start to take a look at the most frequent items purchased.  Below are the top 10 items purchased in our data set.
+
+```{r top10,  message=FALSE, warning=FALSE, echo=FALSE}
+#Top 10 most frequent items
+itemFrequencyPlot(trans,topN = 10,
+                           type = 'absolute',
+                           xlab = "Item Frequency")
+
+```
+
+The Heart T-Light Holder and the Jumbo Bag Red Retrospot were the two most popular items purchased.  Knowing which items that are purchased the most can help you isolate which rules you want to focus on.
+
+### The Rules
+
+Now we will take a look at the rules. Using a support level of 0.005 and a confidence = 0.8, we generated 4844 rules.  You can see a summary below.
+
+```{r rulesGeneration, warning=FALSE, message=FALSE, include=FALSE, cache=TRUE}
+#Set support and confidence one time
+supp <- 0.005
+conf <- 0.8
+
+#Generate rules
+options(digits = 2)
+rules <- apriori(trans,parameter = list(supp = supp, conf = conf))
+rules <- sort(rules, by="lift", decreasing = TRUE)
+```
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+options(digits = 2)
+summary(rules)
+```
+
+We generated the most rules (2263) for itemsets with 4 products, which was the most out of any itemset.
+
+Below are the first 10 rules, sorted by lift.
+
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+options(digits = 2)
+inspect(rules[1:10])
+```
+
+Looking at rule 1, if a customer purchased the DOLLY GIRL CHILDRENS CUP, SPACEBOY CHILDRENS BOWL, and SPACEBOY CHILDRENS CUP, there would be 98% chance that they would also buy the DOLLY GIRL CHILDRENS BOWL. Makes sense if you think about it, because it looks like those customers have 2 children (or buying for 2 children), which one child being a boy, and another being a girl.
+
+You may have noticed that rules 1 and 3 are actually variations of each other.  We can actually prune down the rules to avoid rules that are very similar.  After we do that, we are left with the top 10 rules below:
+
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+#Prune the duplicate rules out
+rules.pruned <- rules[!is.redundant(rules,measure = "confidence")]
+rules.pruned <- sort(rules.pruned, by="lift", decreasing = TRUE)
+
+#Inspect first 10 rules
+inspect(rules.pruned[1:10])
+
+```
+
+Taking a bit of a deeper dive into the data, below I plot the first 50 rules.  Confidence is plotted on the y-axis and support on the x-axis, with the values being the lift. 
+
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+subset2 <- head(rules.pruned,50)
+plot(subset2)
+```
+
+The area of the plot that offers the most value to an organization is where the confidence and support are the highest (top right hand corner).
+
+## Targeting Products
+
+The last section of this post will be about what you can do after you generate rules:  targeting individual products.  We will look at two examples:
+
+1. Targeting what customers are likely to buy BEFORE buying a specific product
+
+2. Targeting what customers are likely to buy AFTER putting a specific product into their cart
+
+### Products Customers are Likely to Buy Before Choosing a Product
+
+First up, we will look at what people tend to add to their cart before they add a specific product.  Our right hand side of the formula in this example will be "PARTY BUNTING".  I wasn't sure what party bunting is so I looked it up (thanks Google).  Turns out it is those banners you hang around a party for decoration.  Anyway, sorting by lift the top 5 rules that made it into the cart before party bunting all included "75 GREEN FAIRY CAKE CASES".
+
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+#Set support and confidence one time
+supp <- 0.001
+conf <- 0.8
+
+#What are customers likely to buy BEFORE buying "PARTY BUNTING"
+bef <- apriori(data = trans,
+                     parameter = list(supp=supp, conf = conf),
+                     appearance = list(default="lhs",rhs = "PARTY BUNTING"),
+                     control = list(verbose = FALSE))
+bef <- sort(bef, decreasing = TRUE, by = "lift")
+inspect(bef[1:5])
+```
+
+### Products Customers are Likely to Buy After Choosing a Product
+
+Next, we will look at products that people tend to buy after adding a specific product to their cart.  In this example, the product we will use is "CHILLI LIGHTS".  Below are the top 5 rules sorted by lift.  
+
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+#What are customers likely to buy AFTER buying "REGENCY CAKESTAND 3 TIER"
+aft <- apriori(data = trans,
+                     parameter = list(supp=supp, conf = .15),
+                     appearance = list(default="rhs",lhs = "CHILLI LIGHTS"),
+                     control = list(verbose = FALSE))
+aft <- sort(aft, decreasing = TRUE, by = "lift")
+inspect(aft[1:5])
+```
+
+Some of the items that people tend to buy after chilli lights are added to the cart are:
+
+1. RED RETROSPOT PEG BAG     
+2. RED RETROSPOT OVEN GLOVE 
+3. BOX OF 24 COCKTAIL PARASOLS 
+
+## Conclusion
+
+I hope you enjoyed the quick look into market basket analysis. If you want to see the code used to generate this analysis, please visit my [GitHub page](https://github.com/chrisselig/MarketBasketAnalysis).  If you want to read some other articles, visit my [website](bidamia.ca). Thank you for reading!
+
+## Citation
+Daqing Chen, Sai Liang Sain, and Kun Guo, Data mining for the online retail industry: A case study of RFM model-based customer segmentation using data mining, Journal of Database Marketing and Customer Strategy Management, Vol. 19, No. 3, pp. 197â???"208, 2012 (Published online before print: 27 August 2012. doi: 10.1057/dbm.2012.17).
